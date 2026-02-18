@@ -17,9 +17,11 @@ const HomeScreen: React.FC = () => {
     timezones,
     selectedTimezone,
     loading,
+    syncing,
     error,
     source,
     selectTimezone,
+    refresh,
   } = useTimezones();
 
   // Current time adjusted to the selected timezone's offset
@@ -48,14 +50,53 @@ const HomeScreen: React.FC = () => {
     );
   }, [loading]);
 
-  const errorUI = useMemo(() => {
-    if (!error) return null;
+  // Offline: initial load done, no data, not syncing, no error => waiting for network
+  const offlineUI = useMemo(() => {
+    if (loading || timezones?.length > 0 || syncing || error) {
+      return null;
+    }
     return (
-      <View style={styles.errorContainer}>
-        <Text style={styles.errorText}>⚠ {error}</Text>
+      <View style={styles.offlineContainer}>
+        <Text style={styles.offlineIcon}>📡</Text>
+        <Text style={styles.offlineText}>
+          You're offline. Timezones will load automatically when you reconnect.
+        </Text>
       </View>
     );
-  }, [error]);
+  }, [loading, timezones?.length, syncing, error]);
+
+  // Syncing: NetInfo detected connectivity, background fetch in progress
+  const syncingUI = useMemo(() => {
+    if (!syncing) {
+      return null;
+    }
+    return (
+      <View style={styles.statusContainer}>
+        <ActivityIndicator size="small" color={Colors.primary} />
+        <Text style={styles.statusText}>
+          Connection restored, loading timezones...
+        </Text>
+      </View>
+    );
+  }, [syncing]);
+
+  const errorUI = useMemo(() => {
+    if (!error) {
+      return null;
+    }
+    return (
+      <View style={styles.errorContainer}>
+        <Text style={styles.errorText}>{error}</Text>
+        <TouchableOpacity
+          style={styles.retryButton}
+          onPress={refresh}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.retryText}>Retry</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }, [error, refresh]);
 
   const sourceUI = useMemo(() => {
     if (loading || !source) return null;
@@ -108,6 +149,8 @@ const HomeScreen: React.FC = () => {
           <Text style={styles.selectorArrow}>›</Text>
         </TouchableOpacity>
         {loadingUI}
+        {offlineUI}
+        {syncingUI}
         {errorUI}
         {sourceUI}
       </View>
