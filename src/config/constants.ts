@@ -1,6 +1,4 @@
-import { TIMEZONE_API_KEY as ENV_API_KEY } from '@env';
-
-export const TIMEZONE_API_KEY = ENV_API_KEY;
+export const TIMEZONE_API_KEY = process.env.TIMEZONE_API_KEY ?? '';
 
 export const TIMEZONE_API_BASE = 'https://api.timezonedb.com/v2.1';
 
