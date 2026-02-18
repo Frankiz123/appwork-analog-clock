@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import NetInfo from '@react-native-community/netinfo';
 
 import type { TimezoneRecord } from '../types/timezone';
 import { TIMEZONE_API_KEY } from '../config/constants';
@@ -106,6 +107,60 @@ export function useTimezones(): UseTimezonesReturn {
   useEffect(() => {
     loadTimezones();
   }, [loadTimezones]);
+
+  // Background Listening using NetInfo Package if users device not have internet checking internet status
+  useEffect(() => {
+    if (loading || timezones.length > 0) {
+      return;
+    }
+
+    const unsubscribe = NetInfo.addEventListener(async state => {
+      if (!state.isConnected) {
+        return;
+      }
+
+      // Double-check cache hasn't been filled in the meantime
+      try {
+        const cached = await getCachedTimezones();
+        if (cached.length > 0) {
+          setTimezones(cached);
+          setSource('cache');
+          unsubscribe();
+          try {
+            const lastZoneName = await getLastSelectedTimezone();
+            if (lastZoneName) {
+              const found = cached.find(z => z.zoneName === lastZoneName);
+              if (found) {
+                setSelectedTimezone(found);
+              }
+            }
+          } catch {}
+          return;
+        }
+      } catch {}
+
+      // Cache still empty — fetch from API
+      try {
+        const zones = await fetchAndCache();
+        if (zones.length > 0) {
+          setTimezones(zones);
+          setSource('api');
+          unsubscribe();
+          try {
+            const lastZoneName = await getLastSelectedTimezone();
+            if (lastZoneName) {
+              const found = zones.find(z => z.zoneName === lastZoneName);
+              if (found) {
+                setSelectedTimezone(found);
+              }
+            }
+          } catch {}
+        }
+      } catch {}
+    });
+
+    return () => unsubscribe();
+  }, [loading, timezones.length, fetchAndCache]);
 
   // Selects a timezone and persists the selection.
   const selectTimezone = useCallback((tz: TimezoneRecord | null) => {
