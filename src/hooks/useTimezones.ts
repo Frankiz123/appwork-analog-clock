@@ -16,6 +16,7 @@ interface UseTimezonesReturn {
   timezones: TimezoneRecord[];
   selectedTimezone: TimezoneRecord | null;
   loading: boolean;
+  syncing: boolean;
   error: string | null;
   source: 'cache' | 'api' | null;
   selectTimezone: (tz: TimezoneRecord | null) => void;
@@ -28,6 +29,7 @@ export function useTimezones(): UseTimezonesReturn {
     useState<TimezoneRecord | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
   const [source, setSource] = useState<'cache' | 'api' | null>(null);
 
   //  Fetches timezones from the API and caches them locally.
@@ -108,55 +110,74 @@ export function useTimezones(): UseTimezonesReturn {
     loadTimezones();
   }, [loadTimezones]);
 
-  // Background Listening using NetInfo Package if users device not have internet checking internet status
+  // Background sync listen for connectivity when cache is empty after initial load.
+  // Automatically fetches timezone data on reconnect, then unsubscribes.
   useEffect(() => {
-    if (loading || timezones.length > 0) {
-      return;
-    }
+    if (loading || timezones.length > 0) return;
+
+    const restoreSelectedTimezone = async (zones: TimezoneRecord[]) => {
+      try {
+        const lastZoneName = await getLastSelectedTimezone();
+        if (lastZoneName) {
+          const found = zones.find(z => z.zoneName === lastZoneName);
+          if (found) {
+            setSelectedTimezone(found);
+          }
+        }
+      } catch (prefErr) {
+        console.warn('Background sync failed , ', prefErr);
+      }
+    };
 
     const unsubscribe = NetInfo.addEventListener(async state => {
       if (!state.isConnected) {
         return;
       }
 
-      // Double-check cache hasn't been filled in the meantime
-      try {
-        const cached = await getCachedTimezones();
-        if (cached.length > 0) {
-          setTimezones(cached);
-          setSource('cache');
-          unsubscribe();
-          try {
-            const lastZoneName = await getLastSelectedTimezone();
-            if (lastZoneName) {
-              const found = cached.find(z => z.zoneName === lastZoneName);
-              if (found) {
-                setSelectedTimezone(found);
-              }
-            }
-          } catch {}
-          return;
-        }
-      } catch {}
+      setSyncing(true);
+      setError(null);
 
-      // Cache still empty — fetch from API
       try {
-        const zones = await fetchAndCache();
-        if (zones.length > 0) {
-          setTimezones(zones);
-          setSource('api');
-          unsubscribe();
-          try {
-            const lastZoneName = await getLastSelectedTimezone();
-            if (lastZoneName) {
-              const found = zones.find(z => z.zoneName === lastZoneName);
-              if (found) {
-                setSelectedTimezone(found);
-              }
-            }
-          } catch {}
+        // Double-check cache hasn't been filled in the meantime
+        try {
+          const cached = await getCachedTimezones();
+          if (Array.isArray(cached) && cached?.length > 0) {
+            setTimezones(cached);
+            setSource('cache');
+            unsubscribe();
+            await restoreSelectedTimezone(cached);
+            return;
+          }
+        } catch (dbErr) {
+          console.warn(
+            'Background sync: cache read failed, will try API:',
+            dbErr,
+          );
         }
-      } catch {}
+
+        // Cache still empty — fetch from API
+        try {
+          const zones = await fetchAndCache();
+          if (Array.isArray(zones) && zones?.length > 0) {
+            setTimezones(zones);
+            setSource('api');
+            unsubscribe();
+            await restoreSelectedTimezone(zones);
+          }
+        } catch (apiErr) {
+          const message =
+            apiErr instanceof Error ? apiErr?.message : 'Unknown error';
+          console.warn('Background sync: API fetch failed:', message);
+          setError(
+            'Could not load timezones. Please check your connection and try again.',
+          );
+        }
+      } catch (error) {
+        console.error('Background sync: unexpected error:', error);
+        setError('Something went wrong while syncing. Tap retry to try again.');
+      } finally {
+        setSyncing(false);
+      }
     });
 
     return () => unsubscribe();
@@ -166,7 +187,7 @@ export function useTimezones(): UseTimezonesReturn {
   const selectTimezone = useCallback((tz: TimezoneRecord | null) => {
     setSelectedTimezone(tz);
     if (tz) {
-      setLastSelectedTimezone(tz.zoneName).catch(err =>
+      setLastSelectedTimezone(tz?.zoneName).catch(err =>
         console.warn('Failed to persist timezone selection:', err),
       );
     }
@@ -182,7 +203,7 @@ export function useTimezones(): UseTimezonesReturn {
       setSource('api');
     } catch (err) {
       const message =
-        err instanceof Error ? err.message : 'Failed to refresh timezones';
+        err instanceof Error ? err?.message : 'Failed to refresh timezones';
       setError(message);
     } finally {
       setLoading(false);
@@ -193,6 +214,7 @@ export function useTimezones(): UseTimezonesReturn {
     timezones,
     selectedTimezone,
     loading,
+    syncing,
     error,
     source,
     selectTimezone,
