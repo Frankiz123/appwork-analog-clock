@@ -53,10 +53,14 @@ npx react-native run-android
 This project uses **TimezoneDB** (example suggested in the assignment).
 
 - API base: `https://api.timezonedb.com/v2.1`
-- API key: set in `src/config/constants.ts`
+- API key is loaded from environment variables (not committed to the repo).
 
-```ts
-export const TIMEZONE_API_KEY = 'YOUR_KEY_HERE';
+#### 1) Create a `.env` file (local only)
+
+Create a `.env` file in the project root:
+
+```env
+TIMEZONE_API_KEY=YOUR_TIMEZONEDB_KEY
 ```
 
 If the API request fails or the key is missing/invalid, the app continues to function (clock still shows local time), and will use cached timezones if available.
@@ -124,3 +128,5 @@ src/
 ## Note
 
 - The UI includes an empty/offline state when the timezone list is not available.
+- `.env` is not committed to the repository.
+- Use `.env.example` as a template.
